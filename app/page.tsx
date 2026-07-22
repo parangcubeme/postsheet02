@@ -25,7 +25,7 @@ type Product = {
   optionName: string;
   optionValue: string;
   mainImage: string;
-  additionalImages: string;
+  additionalImage: string;
   detailHtml: string;
   shippingFee: number;
   brand: string;
@@ -92,15 +92,8 @@ function pick(row: Row, names: string[]) {
   }
   return "";
 }
-function collectAdditionalImages(row: Row) {
-  const direct = normalize(pickExact(row, "추가이미지"));
-  if (direct) return direct;
-  return Object.entries(row)
-    .map(([key, value]) => ({ key: cleanKey(key), value: normalize(value) }))
-    .filter(({ key, value }) => /^이미지([2-9]|[1-9][0-9]+)$/.test(key) && value)
-    .sort((a, b) => Number(a.key.replace("이미지", "")) - Number(b.key.replace("이미지", "")))
-    .map(({ value }) => value)
-    .join("\n");
+function getAdditionalImage(row: Row) {
+  return normalize(pickExact(row, "이미지2")) || normalize(pickExact(row, "추가이미지"));
 }
 function parseSheet(sheet: XLSX.WorkSheet) {
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
@@ -122,7 +115,7 @@ function parseSheet(sheet: XLSX.WorkSheet) {
   const rows = matrix.slice(bestIndex + 1)
     .map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])))
     .filter((row) => Object.values(row).some((value) => normalize(value) !== ""));
-  return { rows, headerRow: bestIndex + 1 };
+  return { rows };
 }
 function calculatePrice(basePrice: number, settings: AppliedSettings) {
   if (basePrice <= 0) return 0;
@@ -142,7 +135,7 @@ function toProducts(rows: Row[], settings: AppliedSettings): Product[] {
       optionName: normalize(pick(raw, aliases.optionName)),
       optionValue: normalize(pick(raw, aliases.optionValue)),
       mainImage: normalize(pick(raw, aliases.mainImage)),
-      additionalImages: collectAdditionalImages(raw),
+      additionalImage: getAdditionalImage(raw),
       detailHtml: normalize(pick(raw, aliases.detailHtml)),
       shippingFee: numberValue(pick(raw, aliases.shippingFee)),
       brand: normalize(pick(raw, aliases.brand)),
@@ -175,7 +168,7 @@ function productToNaverRow(product: Product, settings: AppliedSettings) {
   if (!existing("옵션값") && product.optionValue) set("옵션값", product.optionValue);
 
   set("대표이미지", product.mainImage);
-  set("추가이미지", product.additionalImages);
+  set("추가이미지", product.additionalImage);
   set("상세설명", product.detailHtml);
   if (!existing("브랜드")) set("브랜드", product.brand);
   if (!existing("제조사")) set("제조사", product.maker);
@@ -250,7 +243,7 @@ export default function Home() {
       return;
     }
     setAppliedSettings(next);
-    setStatus(`스마트스토어 적용 완료: ${priced}개 상품. 이미지1→대표이미지, 이미지2 이후→추가이미지, 상품설명→상세설명으로 반영했습니다.`);
+    setStatus(`스마트스토어 적용 완료: ${priced}개 상품. 이미지1→대표이미지, 이미지2 한 개만→추가이미지, 상품설명→상세설명으로 반영했습니다.`);
   }
   function downloadNaver() {
     if (!products.length || !appliedSettings) return;
@@ -311,7 +304,7 @@ export default function Home() {
           <div className="field"><label>택배사코드</label><input value={courierCode} onChange={(e) => setCourierCode(e.target.value)} /></div>
           <div className="field"><label>A/S 전화번호</label><input value={asPhone} onChange={(e) => setAsPhone(e.target.value)} /></div>
           <div className="field"><label>복수원산지 여부</label><select value={multipleOrigins} onChange={(e) => setMultipleOrigins(e.target.value as "N" | "Y")}><option value="N">N · 단일 원산지</option><option value="Y">Y · 복수 원산지</option></select></div>
-          <div className="field full"><small>이미지1은 대표이미지, 이미지2 이후는 추가이미지, 상품설명은 상세설명으로 자동 연결됩니다.</small></div>
+          <div className="field full"><small>이미지1은 대표이미지, 이미지2 한 개만 추가이미지, 상품설명은 상세설명으로 자동 연결됩니다.</small></div>
           {changed && <div className="status full">입력값이 변경됐습니다. 다시 ‘위 내용 적용하기’를 눌러 주세요.</div>}
           <div className="actions full">
             <button onClick={downloadNaver} disabled={!products.length || invalid || changed}>스마트스토어 파일 다운로드</button>
@@ -325,7 +318,7 @@ export default function Home() {
       <section className="preview">
         <div className="previewHead"><h2>스마트스토어 가격 계산 미리보기</h2><span>{products.length}개 상품</span></div>
         <div className="tableWrap"><table><thead><tr><th>상품명</th><th>상품코드</th><th>원래 판매가격</th><th>최종 판매가</th><th>대표이미지</th><th>추가이미지</th></tr></thead><tbody>
-          {products.slice(0, 30).map((product, index) => <tr key={`${product.sellerCode}-${index}`}><td>{product.productName}</td><td>{product.sellerCode}</td><td>{product.basePrice.toLocaleString()}</td><td>{product.salePrice.toLocaleString()}</td><td>{product.mainImage ? "있음" : "없음"}</td><td>{product.additionalImages ? "있음" : "없음"}</td></tr>)}
+          {products.slice(0, 30).map((product, index) => <tr key={`${product.sellerCode}-${index}`}><td>{product.productName}</td><td>{product.sellerCode}</td><td>{product.basePrice.toLocaleString()}</td><td>{product.salePrice.toLocaleString()}</td><td>{product.mainImage ? "있음" : "없음"}</td><td>{product.additionalImage ? "이미지2" : "없음"}</td></tr>)}
           {!products.length && <tr><td colSpan={6} className="empty">엑셀 업로드 후 스마트스토어 탭에서 옵션을 입력하고 적용해 주세요.</td></tr>}
         </tbody></table></div>
       </section>
