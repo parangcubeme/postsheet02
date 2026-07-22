@@ -4,6 +4,12 @@ import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
 type Row = Record<string, unknown>;
+type AppliedSettings = {
+  feeRate: number;
+  marginRate: number;
+  extraCost: number;
+  roundUnit: number;
+};
 
 type Product = {
   productName: string;
@@ -79,14 +85,14 @@ function calculatePrice(basePrice: number, feeRate: number, marginRate: number, 
   return Math.ceil(raw / roundUnit) * roundUnit;
 }
 
-function toProducts(rows: Row[], feeRate: number, marginRate: number, extraCost: number, roundUnit: number): Product[] {
+function toProducts(rows: Row[], settings: AppliedSettings): Product[] {
   return rows.map((row) => {
     const basePrice = numberValue(pick(row, aliases.basePrice));
     return {
       productName: normalize(pick(row, aliases.productName)),
       sellerCode: normalize(pick(row, aliases.sellerCode)),
       basePrice,
-      salePrice: calculatePrice(basePrice, feeRate, marginRate, extraCost, roundUnit),
+      salePrice: calculatePrice(basePrice, settings.feeRate, settings.marginRate, settings.extraCost, settings.roundUnit),
       stock: numberValue(pick(row, aliases.stock)) || 1,
       optionName: normalize(pick(row, aliases.optionName)),
       optionValue: normalize(pick(row, aliases.optionValue)),
@@ -144,33 +150,42 @@ export default function Home() {
   const [marginRate, setMarginRate] = useState(30);
   const [extraCost, setExtraCost] = useState(0);
   const [roundUnit, setRoundUnit] = useState(100);
+  const [appliedSettings, setAppliedSettings] = useState<AppliedSettings | null>(null);
   const [sourceRows, setSourceRows] = useState<Row[]>([]);
   const [fileName, setFileName] = useState("");
   const [status, setStatus] = useState("상품 일괄목록 엑셀을 업로드해 주세요.");
 
   const products = useMemo(
-    () => toProducts(sourceRows, feeRate, marginRate, extraCost, roundUnit),
-    [sourceRows, feeRate, marginRate, extraCost, roundUnit]
+    () => appliedSettings ? toProducts(sourceRows, appliedSettings) : [],
+    [sourceRows, appliedSettings]
   );
 
   async function readFile(file?: File) {
     if (!file) return;
     setFileName(file.name);
+    setAppliedSettings(null);
     try {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Row>(sheet, { defval: "" });
       setSourceRows(rows);
-      setStatus(`${rows.length}행을 읽었습니다. 수수료율과 마진율을 바꾸면 원래 판매가격에 더해져 전체 상품 가격이 자동 재계산됩니다.`);
+      setStatus(`${rows.length}행을 읽었습니다. 수수료율과 마진율을 입력한 뒤 '위 내용 적용하기'를 눌러 주세요.`);
     } catch {
       setSourceRows([]);
       setStatus("파일을 읽지 못했습니다. xlsx, xls 또는 csv 파일인지 확인해 주세요.");
     }
   }
 
+  function applySettings() {
+    if (!sourceRows.length || feeRate < 0 || marginRate < 0) return;
+    const next = { feeRate, marginRate, extraCost, roundUnit };
+    setAppliedSettings(next);
+    setStatus(`적용 완료: 수수료 ${feeRate}%, 추가 마진 ${marginRate}%, ${roundUnit.toLocaleString()}원 단위 올림이 전체 상품에 반영됐습니다.`);
+  }
+
   function downloadNaver() {
-    if (!products.length) return;
+    if (!products.length || !appliedSettings) return;
     const dataRows = products.map(productToNaverRow);
     const aoa = [groupRow, naverHeaders, requiredRow, ...dataRows];
     const sheet = XLSX.utils.aoa_to_sheet(aoa);
@@ -181,14 +196,27 @@ export default function Home() {
     XLSX.writeFile(workbook, `postsheet02_네이버스마트스토어_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
+  function resetAll() {
+    setSourceRows([]);
+    setFileName("");
+    setAppliedSettings(null);
+    setStatus("화면 데이터를 비웠습니다.");
+  }
+
   const invalidRates = feeRate < 0 || marginRate < 0;
+  const settingsChanged = !!appliedSettings && (
+    appliedSettings.feeRate !== feeRate ||
+    appliedSettings.marginRate !== marginRate ||
+    appliedSettings.extraCost !== extraCost ||
+    appliedSettings.roundUnit !== roundUnit
+  );
 
   return (
     <main className="container">
       <section className="hero">
         <span className="badge">postsheet02 · 상품 대량등록 변환</span>
         <h1>상품 일괄목록을<br />네이버 등록 파일로 변환</h1>
-        <p>원래 판매가격에 사용자가 입력한 수수료율과 마진율을 더해 모든 상품에 일괄 적용하고 네이버 스마트스토어 93개 열 순서로 재배치합니다.</p>
+        <p>원래 판매가격에 사용자가 입력한 수수료율과 마진율을 더한 뒤, 적용 버튼을 눌러 확정한 가격으로 네이버 파일을 생성합니다.</p>
         <div className="privacy">원본·결과 파일 서버 저장 없음 · 변환 로그 없음 · 브라우저 안에서만 계산 및 다운로드</div>
       </section>
 
@@ -224,10 +252,12 @@ export default function Home() {
         </div>
 
         {invalidRates && <div className="status full">수수료율과 마진율은 0 이상이어야 합니다.</div>}
+        {settingsChanged && <div className="status full">입력값이 변경됐습니다. 다시 '위 내용 적용하기'를 눌러야 다운로드 파일에 반영됩니다.</div>}
 
         <div className="actions full">
-          <button onClick={downloadNaver} disabled={!products.length || invalidRates}>네이버 스마트스토어 파일 다운로드</button>
-          <button className="secondary" onClick={() => { setSourceRows([]); setFileName(""); setStatus("화면 데이터를 비웠습니다."); }}>초기화</button>
+          <button onClick={downloadNaver} disabled={!products.length || invalidRates || settingsChanged}>네이버 스마트스토어 파일 다운로드</button>
+          <button onClick={applySettings} disabled={!sourceRows.length || invalidRates}>위 내용 적용하기</button>
+          <button className="secondary" onClick={resetAll}>초기화</button>
         </div>
         <div className="status full">{status}</div>
       </section>
@@ -239,12 +269,12 @@ export default function Home() {
         </div>
         <div className="tableWrap">
           <table>
-            <thead><tr><th>상품명</th><th>상품코드</th><th>원래 판매가격</th><th>수수료율</th><th>추가 마진율</th><th>최종 판매가</th></tr></thead>
+            <thead><tr><th>상품명</th><th>상품코드</th><th>원래 판매가격</th><th>적용 수수료율</th><th>적용 마진율</th><th>최종 판매가</th></tr></thead>
             <tbody>
               {products.slice(0, 30).map((p, i) => (
-                <tr key={`${p.sellerCode}-${i}`}><td>{p.productName}</td><td>{p.sellerCode}</td><td>{p.basePrice.toLocaleString()}</td><td>{feeRate}%</td><td>{marginRate}%</td><td>{p.salePrice.toLocaleString()}</td></tr>
+                <tr key={`${p.sellerCode}-${i}`}><td>{p.productName}</td><td>{p.sellerCode}</td><td>{p.basePrice.toLocaleString()}</td><td>{appliedSettings?.feeRate}%</td><td>{appliedSettings?.marginRate}%</td><td>{p.salePrice.toLocaleString()}</td></tr>
               ))}
-              {!products.length && <tr><td colSpan={6} className="empty">엑셀을 업로드하면 전체 상품의 계산 결과가 표시됩니다.</td></tr>}
+              {!products.length && <tr><td colSpan={6} className="empty">엑셀 업로드 후 '위 내용 적용하기'를 누르면 계산 결과가 표시됩니다.</td></tr>}
             </tbody>
           </table>
         </div>
