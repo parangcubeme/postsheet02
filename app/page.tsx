@@ -172,7 +172,7 @@ function productToNaverRow(product: Product, settings: AppliedSettings) {
   set("상세설명", product.detailHtml);
   if (!existing("브랜드")) set("브랜드", product.brand);
   if (!existing("제조사")) set("제조사", product.maker);
-  set("원산지코드", product.originCode);
+  set("원산지코드", "03");
   set("복수원산지여부", settings.multipleOrigins);
   set("원산지 직접입력", product.originDirect);
   set("미성년자 구매", existing("미성년자 구매") || "Y");
@@ -243,7 +243,7 @@ export default function Home() {
       return;
     }
     setAppliedSettings(next);
-    setStatus(`스마트스토어 적용 완료: ${priced}개 상품. 이미지1→대표이미지, 이미지2 한 개만→추가이미지, 상품설명→상세설명으로 반영했습니다.`);
+    setStatus(`스마트스토어 적용 완료: ${priced}개 상품. 원산지코드 03, 이미지1→대표이미지, 이미지2 한 개만→추가이미지, 상품설명→상세설명으로 반영했습니다.`);
   }
   function downloadNaver() {
     if (!products.length || !appliedSettings) return;
@@ -304,7 +304,7 @@ export default function Home() {
           <div className="field"><label>택배사코드</label><input value={courierCode} onChange={(e) => setCourierCode(e.target.value)} /></div>
           <div className="field"><label>A/S 전화번호</label><input value={asPhone} onChange={(e) => setAsPhone(e.target.value)} /></div>
           <div className="field"><label>복수원산지 여부</label><select value={multipleOrigins} onChange={(e) => setMultipleOrigins(e.target.value as "N" | "Y")}><option value="N">N · 단일 원산지</option><option value="Y">Y · 복수 원산지</option></select></div>
-          <div className="field full"><small>이미지1은 대표이미지, 이미지2 한 개만 추가이미지, 상품설명은 상세설명으로 자동 연결됩니다.</small></div>
+          <div className="field full"><small>원산지코드는 03으로 일괄 적용됩니다. 이미지1은 대표이미지, 이미지2 한 개만 추가이미지, 상품설명은 상세설명으로 자동 연결됩니다.</small></div>
           {changed && <div className="status full">입력값이 변경됐습니다. 다시 ‘위 내용 적용하기’를 눌러 주세요.</div>}
           <div className="actions full">
             <button onClick={downloadNaver} disabled={!products.length || invalid || changed}>스마트스토어 파일 다운로드</button>
