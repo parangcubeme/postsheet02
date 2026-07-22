@@ -25,7 +25,7 @@ type Product = {
 const aliases = {
   productName: ["상품명", "제품명", "상품이름", "품명"],
   sellerCode: ["판매자 상품코드", "판매자상품코드", "상품코드", "자체상품코드", "관리코드", "품목코드"],
-  basePrice: ["공급가", "원가", "매입가", "공급가격", "기준가격", "판매가", "상품가격"],
+  basePrice: ["판매가", "상품가격", "판매가격", "기준가격", "공급가", "원가", "매입가", "공급가격"],
   stock: ["재고수량", "재고", "수량"],
   optionName: ["옵션명", "옵션항목", "옵션"],
   optionValue: ["옵션값", "옵션내용", "선택옵션"],
@@ -74,9 +74,8 @@ function pick(row: Row, names: string[]) {
 }
 
 function calculatePrice(basePrice: number, feeRate: number, marginRate: number, extraCost: number, roundUnit: number) {
-  const denominator = 1 - feeRate / 100 - marginRate / 100;
-  if (basePrice <= 0 || denominator <= 0) return 0;
-  const raw = (basePrice + extraCost) / denominator;
+  if (basePrice <= 0) return 0;
+  const raw = (basePrice + extraCost) * (1 + marginRate / 100 + feeRate / 100);
   return Math.ceil(raw / roundUnit) * roundUnit;
 }
 
@@ -163,7 +162,7 @@ export default function Home() {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Row>(sheet, { defval: "" });
       setSourceRows(rows);
-      setStatus(`${rows.length}행을 읽었습니다. 수수료율과 마진율을 바꾸면 전체 상품 가격이 자동 재계산됩니다.`);
+      setStatus(`${rows.length}행을 읽었습니다. 수수료율과 마진율을 바꾸면 원래 판매가격에 더해져 전체 상품 가격이 자동 재계산됩니다.`);
     } catch {
       setSourceRows([]);
       setStatus("파일을 읽지 못했습니다. xlsx, xls 또는 csv 파일인지 확인해 주세요.");
@@ -182,14 +181,14 @@ export default function Home() {
     XLSX.writeFile(workbook, `postsheet02_네이버스마트스토어_${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
-  const invalidRates = feeRate < 0 || marginRate < 0 || feeRate + marginRate >= 100;
+  const invalidRates = feeRate < 0 || marginRate < 0;
 
   return (
     <main className="container">
       <section className="hero">
         <span className="badge">postsheet02 · 상품 대량등록 변환</span>
         <h1>상품 일괄목록을<br />네이버 등록 파일로 변환</h1>
-        <p>사용자가 입력한 수수료율과 목표 마진율을 모든 상품에 일괄 적용하고 네이버 스마트스토어 93개 열 순서로 재배치합니다.</p>
+        <p>원래 판매가격에 사용자가 입력한 수수료율과 마진율을 더해 모든 상품에 일괄 적용하고 네이버 스마트스토어 93개 열 순서로 재배치합니다.</p>
         <div className="privacy">원본·결과 파일 서버 저장 없음 · 변환 로그 없음 · 브라우저 안에서만 계산 및 다운로드</div>
       </section>
 
@@ -202,13 +201,13 @@ export default function Home() {
 
         <div className="field">
           <label>2. 네이버 수수료율 (%)</label>
-          <input min={0} max={99} step={0.1} type="number" value={feeRate} onChange={(e) => setFeeRate(Number(e.target.value))} />
-          <small>입력한 비율이 모든 상품에 일괄 적용됩니다.</small>
+          <input min={0} step={0.1} type="number" value={feeRate} onChange={(e) => setFeeRate(Number(e.target.value))} />
+          <small>원래 판매가격에 입력한 수수료율만큼 더합니다.</small>
         </div>
         <div className="field">
-          <label>3. 목표 마진율 (%)</label>
-          <input min={0} max={99} step={0.1} type="number" value={marginRate} onChange={(e) => setMarginRate(Number(e.target.value))} />
-          <small>각 상품의 기준가격을 바탕으로 계산합니다.</small>
+          <label>3. 추가 마진율 (%)</label>
+          <input min={0} step={0.1} type="number" value={marginRate} onChange={(e) => setMarginRate(Number(e.target.value))} />
+          <small>원래 판매가격에 입력한 마진율만큼 더합니다.</small>
         </div>
         <div className="field">
           <label>상품당 추가비용 (원)</label>
@@ -224,7 +223,7 @@ export default function Home() {
           </select>
         </div>
 
-        {invalidRates && <div className="status full">수수료율과 마진율의 합은 100%보다 작아야 합니다.</div>}
+        {invalidRates && <div className="status full">수수료율과 마진율은 0 이상이어야 합니다.</div>}
 
         <div className="actions full">
           <button onClick={downloadNaver} disabled={!products.length || invalidRates}>네이버 스마트스토어 파일 다운로드</button>
@@ -240,7 +239,7 @@ export default function Home() {
         </div>
         <div className="tableWrap">
           <table>
-            <thead><tr><th>상품명</th><th>상품코드</th><th>기준가격</th><th>수수료율</th><th>마진율</th><th>최종 판매가</th></tr></thead>
+            <thead><tr><th>상품명</th><th>상품코드</th><th>원래 판매가격</th><th>수수료율</th><th>추가 마진율</th><th>최종 판매가</th></tr></thead>
             <tbody>
               {products.slice(0, 30).map((p, i) => (
                 <tr key={`${p.sellerCode}-${i}`}><td>{p.productName}</td><td>{p.sellerCode}</td><td>{p.basePrice.toLocaleString()}</td><td>{feeRate}%</td><td>{marginRate}%</td><td>{p.salePrice.toLocaleString()}</td></tr>
