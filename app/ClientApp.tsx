@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 type Row = Record<string, unknown>;
 type MarketTab = "smartstore" | "esm";
@@ -27,6 +27,7 @@ const aliases = {
   originCode: ["원산지코드", "원산지 지역코드"],
   originDirect: ["원산지 직접입력", "원산지직접입력", "원산지", "원산지명"],
 };
+
 const naverHeaders = ["판매자 상품코드", "카테고리코드", "상품명", "상품상태", "판매가", "부가세", "재고수량", "대표이미지", "추가이미지", "상세설명", "원산지코드", "복수원산지여부", "원산지 직접입력", "미성년자 구매", "배송방법", "택배사코드", "배송비유형", "기본배송비", "반품배송비", "교환배송비", "별도설치비", "A/S 전화번호", "A/S 안내", "구매평 노출여부", "알림받기 동의 고객 전용 여부"];
 const esmHeaders = ["노출\n사이트", "A ID", "G ID", "상품명", "A프로모션 문구", "G프로모션 문구", "G 영문", "G 중문", "카테고리 템플릿 코드", "카테고리 코드", "A 노출코드", "G 노출코드", "판매기간", "A 판매가", "G 판매가", "A 할인유형", "A 할인가", "G 할인유형", "G 할인가", "A 재고", "G 재고", "옵션\n타입", "옵션명", "옵션\n입력값", "기본이미지", "추가이미지", "상품상세설명", "배송정보 \n템플릿 코드", "배송방법", "출하지 코드", "배송정책번호", "반품/교환\n주소 코드", "A 발송정책", "G 발송정책", "택배사\n코드", "반품/교환\n배송비", "상품군\n코드", "상품고시정보\n템플릿코드", "인증타입", "인증품목선택", "인증코드", "인증타입", "인증품목선택", "인증코드", "병행수입여부", "인증타입", "인증품목선택", "인증코드", "병행수입여부", "인증타입", "승인/신고번호", "원산지\n상품타입", "원산지\n지역타입", "원산지\n지역코드", "복수\n원산지여부", "사은품/덤 \n템플릿 코드", "사은품", "덤", "소비기한", "제조일자", "청소년구매\n불가여부", "부가세여부", "선물하기상품"];
 const steps: { id: StepId; label: string }[] = [
@@ -52,21 +53,30 @@ function detectGroup(name: string) {
   return { group: "미분류", productGroupCode: "35" };
 }
 function makeProducts(rows: Row[]) {
-  return rows.map((raw, index): Product => {
-    const productName = normalize(pick(raw, aliases.productName)); const basePrice = numberValue(pick(raw, aliases.basePrice));
-    const existingCategory = digits(pickExact(raw, "카테고리코드")); const detected = detectGroup(productName);
+  const products: Product[] = [];
+  rows.forEach((raw, index) => {
+    const productName = normalize(pick(raw, aliases.productName));
+    const basePrice = numberValue(pick(raw, aliases.basePrice));
+    if (!productName || basePrice <= 0) return;
+    const existingCategory = digits(pickExact(raw, "카테고리코드"));
+    const detected = detectGroup(productName);
     const shippingGroup = ["출하지 코드", "배송정책번호", "A 발송정책", "G 발송정책"].map(k => normalize(pickExact(raw, k))).filter(Boolean).join(" / ") || "배송정보 미입력";
-    return { id: `P${index + 1}`, raw, productName, sellerCode: normalize(pick(raw, aliases.sellerCode)) || `P${index + 1}`, basePrice, finalPrice: basePrice,
-      stock: numberValue(pick(raw, aliases.stock)) || 99999, mainImage: normalize(pick(raw, aliases.mainImage)), additionalImage: normalize(pickExact(raw, "추가이미지")) || normalize(pickExact(raw, "이미지2")),
+    products.push({
+      id: `P${index + 1}`, raw, productName, sellerCode: normalize(pick(raw, aliases.sellerCode)) || `P${index + 1}`,
+      basePrice, finalPrice: basePrice, stock: numberValue(pick(raw, aliases.stock)) || 99999,
+      mainImage: normalize(pick(raw, aliases.mainImage)), additionalImage: normalize(pickExact(raw, "추가이미지")) || normalize(pickExact(raw, "이미지2")),
       detailHtml: normalize(pick(raw, aliases.detailHtml)), shippingFee: numberValue(pick(raw, aliases.shippingFee)), vatType: normalize(pick(raw, aliases.vatType)),
       categoryGroup: existingCategory ? `기존 카테고리 ${existingCategory}` : detected.group, categoryCode: existingCategory,
       auctionExposureCode: digits(pickExact(raw, "A 노출코드")), gmarketExposureCode: digits(pickExact(raw, "G 노출코드")), productGroupCode: digits(pickExact(raw, "상품군 코드")) || detected.productGroupCode,
-      noticeTemplateCode: digits(pickExact(raw, "상품고시정보 템플릿코드")) || "239479", originProductType: normalize(pickExact(raw, "원산지 상품타입")) || "해당없음",
-      originRegionType: normalize(pickExact(raw, "원산지 지역타입")) || "알수없음", originRegionCode: digits(pick(raw, aliases.originCode)), multipleOrigins: normalize(pickExact(raw, "복수 원산지여부")) || "단일원산지",
+      noticeTemplateCode: digits(pickExact(raw, "상품고시정보 템플릿코드")) || "239479",
+      originProductType: normalize(pickExact(raw, "원산지 상품타입")) || "해당없음", originRegionType: normalize(pickExact(raw, "원산지 지역타입")) || "알수없음",
+      originRegionCode: digits(pick(raw, aliases.originCode)), multipleOrigins: normalize(pickExact(raw, "복수 원산지여부")) || "단일원산지",
       shippingGroup, departureCode: digits(pickExact(raw, "출하지 코드")), shippingPolicyNumber: digits(pickExact(raw, "배송정책번호")), returnAddressCode: digits(pickExact(raw, "반품/교환 주소 코드")),
       auctionShippingPolicy: digits(pickExact(raw, "A 발송정책")), gmarketShippingPolicy: digits(pickExact(raw, "G 발송정책")), courierCode: digits(pickExact(raw, "택배사 코드")) || "10013",
-      returnShippingFee: numberValue(pickExact(raw, "반품/교환 배송비")) || 2500 };
-  }).filter(item => item.productName && item.basePrice > 0);
+      returnShippingFee: numberValue(pickExact(raw, "반품/교환 배송비")) || 2500,
+    });
+  });
+  return products;
 }
 function groupProducts(products: Product[], step: StepId) {
   const map = new Map<string, Product[]>();
@@ -78,20 +88,43 @@ function groupProducts(products: Product[], step: StepId) {
 }
 function makeEsmRows(products: Product[], auctionId: string, gmarketId: string) {
   const top: unknown[][] = [["▶가이드 바로가기", null, " ※ 문서버전 : NEW 2.0", null, "필독▶ 일반배송 전용 파일입니다. 상품정보는 8행부터 입력됩니다.", ...Array(59).fill(null)], [null, "상품기본정보", ...Array(26).fill(null), "배송정보", ...Array(8).fill(null), "상품고시정보", ...Array(25).fill(null)], [null, ...esmHeaders], [null, ...esmHeaders.map(() => "")], [null, ...esmHeaders.map(() => "")], [null, ...esmHeaders.map(() => "")], [null, ...esmHeaders.map(() => "")]];
-  return [...top, ...products.map(product => { const row = Array(64).fill(""); row[1] = "옥션/G마켓"; row[2] = auctionId; row[3] = gmarketId; row[4] = product.productName; row[10] = product.categoryCode; row[11] = product.auctionExposureCode; row[12] = product.gmarketExposureCode; row[13] = "무제한"; row[14] = product.finalPrice; row[15] = product.finalPrice; row[20] = product.stock; row[21] = product.stock; row[22] = "미사용"; row[25] = product.mainImage; row[26] = product.additionalImage; row[27] = product.detailHtml; row[29] = "일반택배"; row[30] = product.departureCode; row[31] = product.shippingPolicyNumber; row[32] = product.returnAddressCode; row[33] = product.auctionShippingPolicy; row[34] = product.gmarketShippingPolicy; row[35] = product.courierCode; row[36] = product.returnShippingFee; row[37] = product.productGroupCode; row[38] = product.noticeTemplateCode; row[39] = "인증대상아님"; row[42] = "인증대상아님"; row[45] = "해당사항없음"; row[46] = "인증대상아님"; row[49] = "해당사항없음"; row[50] = "인증대상아님"; row[52] = product.originProductType; row[53] = product.originRegionType; row[54] = product.originRegionCode; row[55] = product.multipleOrigins; row[61] = "구매가능"; row[62] = product.vatType.includes("면세") ? "면세상품" : "과세상품"; row[63] = "가능"; return row; })];
+  const body = products.map(product => { const row = Array(64).fill(""); row[1] = "옥션/G마켓"; row[2] = auctionId; row[3] = gmarketId; row[4] = product.productName; row[10] = product.categoryCode; row[11] = product.auctionExposureCode; row[12] = product.gmarketExposureCode; row[13] = "무제한"; row[14] = product.finalPrice; row[15] = product.finalPrice; row[20] = product.stock; row[21] = product.stock; row[22] = "미사용"; row[25] = product.mainImage; row[26] = product.additionalImage; row[27] = product.detailHtml; row[29] = "일반택배"; row[30] = product.departureCode; row[31] = product.shippingPolicyNumber; row[32] = product.returnAddressCode; row[33] = product.auctionShippingPolicy; row[34] = product.gmarketShippingPolicy; row[35] = product.courierCode; row[36] = product.returnShippingFee; row[37] = product.productGroupCode; row[38] = product.noticeTemplateCode; row[39] = "인증대상아님"; row[42] = "인증대상아님"; row[45] = "해당사항없음"; row[46] = "인증대상아님"; row[49] = "해당사항없음"; row[50] = "인증대상아님"; row[52] = product.originProductType; row[53] = product.originRegionType; row[54] = product.originRegionCode; row[55] = product.multipleOrigins; row[61] = "구매가능"; row[62] = product.vatType.includes("면세") ? "면세상품" : "과세상품"; row[63] = "가능"; return row; });
+  return [...top, ...body];
 }
 
 export default function ClientApp() {
-  const [active, setActive] = useState<MarketTab>("smartstore"); const [rows, setRows] = useState<Row[]>([]); const [products, setProducts] = useState<Product[]>([]);
-  const [status, setStatus] = useState("상품 엑셀을 업로드해 주세요."); const [busy, setBusy] = useState(false);
+  const workerRef = useRef<Worker | null>(null);
+  const [active, setActive] = useState<MarketTab>("smartstore");
+  const [rows, setRows] = useState<Row[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [status, setStatus] = useState("상품 엑셀을 업로드해 주세요.");
+  const [busy, setBusy] = useState(false);
   const [feeRate, setFeeRate] = useState(6); const [smartMargin, setSmartMargin] = useState(30); const [extraCost, setExtraCost] = useState(0); const [smartRound, setSmartRound] = useState(100);
   const [smartCategory, setSmartCategory] = useState("50001770"); const [smartCourier, setSmartCourier] = useState("CJGLS"); const [asPhone, setAsPhone] = useState("01027483227");
   const [step, setStep] = useState<StepId>("category"); const [selectedGroup, setSelectedGroup] = useState(""); const [groupPage, setGroupPage] = useState(0);
   const [auctionId, setAuctionId] = useState(""); const [gmarketId, setGmarketId] = useState(""); const [marginRate, setMarginRate] = useState(0); const [roundUnit, setRoundUnit] = useState(100);
-  const groups = useMemo(() => groupProducts(products, step), [products, step]); const visibleGroups = useMemo(() => groups.slice(groupPage * 40, groupPage * 40 + 40), [groups, groupPage]); const currentGroup = groups.find(group => group.name === selectedGroup) ?? groups[0];
+  const groups = useMemo(() => groupProducts(products, step), [products, step]);
+  const visibleGroups = useMemo(() => groups.slice(groupPage * 40, groupPage * 40 + 40), [groups, groupPage]);
+  const currentGroup = groups.find(group => group.name === selectedGroup) ?? groups[0];
   const downloadPages = useMemo<DownloadPage[]>(() => { const byCategory = new Map<string, Product[]>(); for (const product of products) { const key = product.categoryCode || "미분류"; const current = byCategory.get(key); if (current) current.push(product); else byCategory.set(key, [product]); } const pages: DownloadPage[] = []; for (const [category, items] of byCategory) for (let i = 0; i < items.length; i += 500) pages.push({ key: `${category}-${i}`, category, page: i / 500 + 1, items: items.slice(i, i + 500) }); return pages; }, [products]);
 
-  async function readFile(file?: File) { if (!file) return; setBusy(true); setStatus("엑셀 기능을 불러오는 중입니다."); try { const XLSX = await import("xlsx"); const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" }); const sheet = workbook.Sheets[workbook.SheetNames[0]]; const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false }); const candidates = [...aliases.productName, ...aliases.basePrice].map(cleanKey); let headerIndex = 0; let best = -1; matrix.slice(0, 30).forEach((row, index) => { const score = row.map(cleanKey).filter(Boolean).filter(key => candidates.some(c => key === c || key.includes(c) || c.includes(key))).length; if (score > best) { best = score; headerIndex = index; } }); const headers = (matrix[headerIndex] ?? []).map((value, index) => normalize(value) || `열${index + 1}`); const parsedRows = matrix.slice(headerIndex + 1).map(values => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]))).filter(row => Object.values(row).some(value => normalize(value))); const parsed = makeProducts(parsedRows); setRows(parsedRows); setProducts(parsed); setStep("category"); setSelectedGroup(""); setGroupPage(0); setStatus(`${parsed.length}개 상품을 읽었습니다.`); } catch { setStatus("파일을 읽지 못했습니다."); } finally { setBusy(false); } }
+  async function readFile(file?: File) {
+    if (!file) return;
+    setBusy(true); setStatus("엑셀을 분석하고 있습니다. 화면은 계속 사용할 수 있습니다.");
+    workerRef.current?.terminate();
+    const worker = new Worker(new URL("./excel.worker.ts", import.meta.url), { type: "module" });
+    workerRef.current = worker;
+    worker.onmessage = (event: MessageEvent<{ ok: boolean; rows?: Row[]; message?: string }>) => {
+      if (!event.data.ok || !event.data.rows) { setStatus(event.data.message || "파일을 읽지 못했습니다."); setBusy(false); worker.terminate(); return; }
+      const parsedRows = event.data.rows;
+      const parsed = makeProducts(parsedRows);
+      setRows(parsedRows); setProducts(parsed); setStep("category"); setSelectedGroup(""); setGroupPage(0);
+      setStatus(`${parsed.length}개 상품을 읽었습니다.`); setBusy(false); worker.terminate();
+    };
+    worker.onerror = () => { setStatus("파일 분석 중 오류가 발생했습니다."); setBusy(false); worker.terminate(); };
+    const buffer = await file.arrayBuffer();
+    worker.postMessage(buffer, [buffer]);
+  }
   function patchGroup(patch: Partial<Product>) { if (!currentGroup) return; const ids = new Set(currentGroup.items.map(item => item.id)); setProducts(current => current.map(product => ids.has(product.id) ? { ...product, ...patch } : product)); setStatus(`${currentGroup.items.length}개 상품에 적용했습니다.`); }
   async function downloadSmart() { if (!rows.length) return; setBusy(true); try { const XLSX = await import("xlsx"); const body = makeProducts(rows).map(product => [product.sellerCode, smartCategory, product.productName, "신상품", Math.ceil(((product.basePrice + extraCost) * (1 + (feeRate + smartMargin) / 100)) / Math.max(1, smartRound)) * Math.max(1, smartRound), product.vatType || "과세상품", product.stock, product.mainImage, product.additionalImage, product.detailHtml, "03", "N", normalize(pick(product.raw, aliases.originDirect)), "Y", "택배, 소포, 등기", smartCourier, product.shippingFee > 0 ? "유료" : "무료", product.shippingFee, product.shippingFee || 3000, (product.shippingFee || 3000) * 2, "N", asPhone, "판매자에 문의하시거나, A/S연락처로 문의 주시기 바랍니다.", "Y", "N"]); const sheet = XLSX.utils.aoa_to_sheet([naverHeaders, ...body]); const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, sheet, "일괄등록"); XLSX.writeFile(workbook, "postsheet02_스마트스토어.xlsx"); setStatus("스마트스토어 파일 다운로드를 시작했습니다."); } finally { setBusy(false); } }
   async function downloadPage(page: DownloadPage) { setBusy(true); try { const XLSX = await import("xlsx"); const sheet = XLSX.utils.aoa_to_sheet(makeEsmRows(page.items, auctionId.trim(), gmarketId.trim())); sheet["!cols"] = Array(64).fill({ wch: 16 }); const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, sheet, "NEW 일반상품"); XLSX.writeFile(workbook, `ESM_카테고리_${page.category}_${page.page}페이지_${page.items.length}개.xlsx`); setStatus("다운로드를 시작했습니다."); } finally { setBusy(false); } }
